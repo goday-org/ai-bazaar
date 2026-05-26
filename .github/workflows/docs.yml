@@ -5,12 +5,16 @@ on:
     paths:
       - 'docs/**'
       - 'README.md'
+      - 'SECURITY.md'
+      - 'CONTRIBUTING.md'
       - '.github/workflows/docs.yml'
   push:
     branches: [main]
     paths:
       - 'docs/**'
       - 'README.md'
+      - 'SECURITY.md'
+      - 'CONTRIBUTING.md'
 
 permissions:
   contents: read
@@ -32,6 +36,8 @@ jobs:
             --exclude-path 'docs/progress'
             './docs/**/*.md'
             './README.md'
+            './SECURITY.md'
+            './CONTRIBUTING.md'
           fail: true
 
   markdown-lint:
@@ -46,16 +52,8 @@ jobs:
           globs: |
             docs/**/*.md
             README.md
-          config: |
-            {
-              "default": true,
-              "MD013": false,
-              "MD024": { "siblings_only": true },
-              "MD033": false,
-              "MD041": false,
-              "MD036": false,
-              "MD040": false
-            }
+            SECURITY.md
+            CONTRIBUTING.md
 
   proto-version-stamp:
     name: protocol version present
@@ -90,7 +88,7 @@ jobs:
             # Skip the docs that explicitly enumerate these as forbidden.
             if grep -RIn --include='*.md' \
                  --exclude='GLOSSARY.md' --exclude='HANDOFF.md' \
-                 -F "$word" docs/ README.md 2>/dev/null; then
+                 -F "$word" docs/ README.md SECURITY.md CONTRIBUTING.md 2>/dev/null; then
               echo "::error::forbidden phrase \"$word\" found"
               FAIL=1
             fi
