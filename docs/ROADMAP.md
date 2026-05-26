@@ -143,18 +143,27 @@ rtk grep -r "lib/pq" seller-relay/go.mod   # 应无
 - 建立 Rust workspace
 - 实现 `protocol/` crate 的身份、签名、canonical_json
 - Rust 测试向量生成
+- **新建** seller-relay 的 `internal/protocolcompat/` 包，作为 Go 端读 Rust 测试向量的回归点
 
 ### 任务清单
 
 - [ ] `Cargo.toml` workspace 配置
 - [ ] `protocol/` crate skeleton
-- [ ] `identity.rs`：keypair 生成、序列化、fingerprint
-- [ ] `signature.rs`：签名 / 验证 / canonical_json
+- [ ] `identity.rs`：keypair 生成（SLIP-0010 + BIP-39）、序列化、fingerprint（BLAKE3-128）
+- [ ] `signature.rs`：签名 / 验证 / canonical_json（**直接对 canonical bytes 签，不预 hash**）
 - [ ] `messages.rs`：所有消息类型（Listing / Request / Commit / Reveal / Tx / Ticket）
-- [ ] `commit_reveal.rs`：commitment 计算 + CBOR encoding
+- [ ] `commit_reveal.rs`：commitment 计算（canonical CBOR + BLAKE3 32 字节）
 - [ ] 单元测试覆盖率 ≥ 85%
-- [ ] proptest：签名/验证、commitment/reveal 闭包
-- [ ] 测试向量生成 → 写入 `tests/vectors/`
+- [ ] proptest：签名/验证 roundtrip、commitment 单向性、reveal 加解密 roundtrip
+- [ ] 测试向量生成 → 写入 `protocol/tests/vectors/`：
+  - 5 条 listing 签名向量
+  - 3 条 commitment 向量
+  - 3 条 reveal 加密向量
+  - 3 条 ticket 签名向量
+- [ ] **新建** `seller-relay/internal/protocolcompat/`（Go 包）：
+  - 加载 Rust 生成的 `tests/vectors/` 目录
+  - 用 Go 重新计算签名 / commitment / canonical_json 并断言**字节级**等价
+  - 一个测试入口：`go test ./internal/protocolcompat/`
 
 ### 验收
 
@@ -258,38 +267,45 @@ cargo test -p protocol --test github_sync -- --nocapture
 
 ### 目标
 
-- 完整跑通密封竞价流程
+- 完整跑通密封竞价流程（**Vickrey / second-price**）
 - 模拟 3 个 seller 竞价同一个 request
-- 最低价中标
+- 最低价 winner，付款 = 第二低价
 
 ### 任务清单
 
 - [ ] `protocol/src/commit_reveal.rs` 完整状态机
 - [ ] `buyer-cli` 加 `request` 子命令：生成 request 并 PR 到 registry
 - [ ] `seller-ctl` 加 watch 模式：监听 registry 新 request，自动出价
-- [ ] `seller-ctl` 配置文件：定价策略（如"低于 max_price 5%"）
-- [ ] buyer-cli watch reveal：deadline 到达后选最低价、生成 tx PR
+- [ ] `seller-ctl` 配置文件：定价策略（Vickrey 下的占优策略 = 报真实成本，配置项暴露 markup ratio）
+- [ ] buyer-cli watch reveal：deadline 到达后**用 Vickrey 规则**算 winner / final_price
+  - 实现 §3.5 三种边界：1 reveal / 多 reveal / 并列
+- [ ] 落选者审计逻辑：seller-ctl 收到 tx 后验证自己 commitment 在 `all_commitments`，且 `final_price` ≤ 自己 reveal 价
 - [ ] e2e 测试：fake registry + 3 个 seller + 1 个 buyer
 - [ ] **失败路径**测试：
   - 卖家 commit 后不 reveal → forfeit
   - 卖家 reveal 价格与 commit 不匹配 → 拒绝 + 声誉惩罚
   - 卖家报价 > max_price → 自动失格
+  - **新增**：仅 1 个有效 reveal → final_price 等于 max_price（不是 reveal 价）
+  - **新增**：2 个 seller 报同样最低价 → BLAKE3 决定性 winner
 
 ### 验收
 
 ```bash
 cargo test -p protocol --test commit_reveal_e2e -- --nocapture
 
-# 期望日志：
-# [buyer] published request req-001 (max 5.00 USDC)
+# 期望日志（Vickrey 例子）：
+# [buyer] published request req-001 (max 5.00 USDC, 100k tokens)
 # [seller-a] committed (price=4.50)
 # [seller-b] committed (price=4.20)
 # [seller-c] committed (price=4.80)
 # [seller-a] revealed
 # [seller-b] revealed
 # [seller-c] revealed
-# [buyer] winner: seller-b (4.20 USDC)
-# [tx] created tx-xxx
+# [buyer] winner: seller-b (revealed 4.20 USDC)
+# [buyer] Vickrey final price: 4.50 USDC (= second-lowest reveal)
+# [tx] created tx-xxx with winning_bid=4200000 final_price=4500000
+# [seller-c] audit: my reveal 4.80 ≥ final 4.50 → OK
+# [seller-a] audit: my reveal 4.50 ≥ final 4.50 → OK (boundary)
 ```
 
 ---
@@ -425,35 +441,5 @@ reviewer 与 alpha 用户分别能：
 
 ## 进度跟踪
 
-每周末提交 `docs/progress/W{N}.md`，模板：
-
-```markdown
-# W{N} 总结 — YYYY-MM-DD
-
-## 完成的任务
-- [x] ...
-
-## 未完成 / 延期
-- [ ] ...，原因：...
-
-## 关键决策（DEVIATION）
-- 原计划：...
-  改为：...
-  理由：...
-
-## 已知问题
-- ...
-
-## 验收命令输出
-```
-
-```bash
-# 贴在这
-```
-
-## 下周计划
-- ...
-
-## 给 reviewer 的问题
-- ...
-```
+每周末以 PR 形式提交 `docs/progress/W{N}.md`（受 ruleset 保护，必须走 PR
++ reviewer approval，与代码 PR 一致）。模板见 `docs/progress/TEMPLATE.md`。
