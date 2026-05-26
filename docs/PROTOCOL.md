@@ -96,8 +96,11 @@ signature = Ed25519_Sign(
 ### 2.4 时间戳
 
 - 格式：RFC 3339，UTC，带 Z 后缀，无毫秒
-- 验证规则：接收时若 `|now - timestamp| > 24h`，拒绝该消息
-- 例外：`tx/*.json` 不受此限（要保留历史）
+- 验证规则（与 PITFALLS §4.3 一致）：
+  - 拒绝 `timestamp > now + 5min`（防伪造未来戳）
+  - 拒绝 `timestamp < now - 24h`（容忍最长 24h 时钟回退 / 网络延迟）
+- 例外：`tx/*.json` 和 `reputation/*.json` 不受新鲜度限制（要保留历史）
+- 实现要点：使用进程启动时的单调时钟做相对验证；**不要**信任外部 NTP 作信任根
 
 ---
 
