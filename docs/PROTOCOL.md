@@ -13,6 +13,10 @@
 
 - **PublicKey**：32 bytes，编码为 base64url（无 padding）
 - **PublicKeyFingerprint**：BLAKE3-128 of PublicKey，编码为 base32（小写，无 padding），20 字符
+  - **BLAKE3-128 的精确定义**：取 BLAKE3 标准 256-bit 输出的**前 16 字节**。
+    伪代码：`fp_bytes = blake3::hash(pubkey).as_bytes()[..16]`。
+    Rust 用 `blake3::hash(&pk).as_bytes()` 取前 16 字节；Go 用 `lukechampine.com/blake3` 的 `Sum256(pk)` 再切片。
+    **不要用** `finalize_xof()` 读 16 字节（XOF 模式输出与截断模式不同）。
 - **示例**：`abcdefghij1234567890`
 
 ### 1.2 路径与文件名
@@ -33,8 +37,11 @@ manifest.json
 ### 1.3 ID 生成
 
 - `req_id`：UUID v7（时间排序）
-- `tx_id`：BLAKE3-128 of `req_id || winner_fp || final_price`，base32
-- `rev_id`：BLAKE3-128 of `tx_id || reviewer_fp`，base32
+- `tx_id`：BLAKE3-128 of `req_id_bytes || winner_fp_bytes || final_price_u64_le`，base32
+- `rev_id`：BLAKE3-128 of `tx_id_bytes || rater_fp_bytes`，base32
+
+**BLAKE3-128 与 §1.1 同义**：取 256-bit 输出的前 16 字节。
+**整数编码统一用 little-endian**（`final_price_u64_le` 表示 8-byte LE）。
 
 ---
 
@@ -53,17 +60,19 @@ manifest.json
 ```
 signature = Ed25519_Sign(
     private_key,
-    SHA256( canonical_json(message_without_signature_field) )
+    canonical_json(message_without_signature_field)
 )
 ```
+
+**重要**：直接对 canonical_json 字节签名，**不要预先 hash**。Ed25519 内部已经做 SHA-512，再加一层 SHA-256 会偏离 RFC 8032，且与 Rust `ed25519-dalek` / Go `crypto/ed25519` 默认行为不一致，导致 Rust/Go 实现互不兼容。
 
 **canonical_json 规则**（必须 Rust / Go 两边一致）：
 
 1. 所有 object key 按 UTF-8 字节序排序
 2. 无空格、无换行
-3. 数字：整数原样输出；浮点用 `f64` shortest 表示（**协议中尽量不要用浮点**，价格用整数微单位）
-4. null / true / false 全小写
-5. 字符串按 RFC 8259 escape，最小化转义
+3. 整数原样输出；**协议禁止用浮点**（价格全部用整数微单位 u64）
+4. 字符串按 RFC 8259 escape，最小化转义（仅 `"`、`\`、`\b\f\n\r\t`、U+0000–U+001F 用 `\u00XX`，其余原样输出）
+5. 数组保持声明顺序，不重排序
 
 ### 2.3 签名字段位置
 
