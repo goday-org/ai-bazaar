@@ -442,10 +442,31 @@ tracing::info!(
 
 ### 9.2 ToS 措辞
 
+> **CI 强制**：本节"权威禁词列表"由 `.github/workflows/docs.yml` 的
+> `forbidden-words` job 强制扫描；任何匹配命中（除了 GLOSSARY.md /
+> HANDOFF.md / PITFALLS.md 这三份枚举文档自身）会让 PR 红 CI。
+
+**权威禁词列表**（短语 / 子串匹配，大小写不敏感）：
+
+```
+resell account
+share account credentials
+bypass subscription
+untraceable
+use anyone's claude subscription
+bypass openai subscription
+resell api access
+evade platform
+anti-fraud bypass
+反风控
+绕过风控
+```
+
 ❌ 不要写：
 - "use anyone's Claude subscription"
 - "bypass OpenAI subscription"
 - "resell API access"
+- "untraceable" 与 "anonymous" 同句出现
 
 ✅ 可以写：
 - "share unused API quota with consent"
