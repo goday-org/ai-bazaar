@@ -17,7 +17,7 @@
 - sub2api 协议：**LGPL-3.0**
 - 你 fork 后必须：
   - 保留原 LICENSE 文件，不要删
-  - 在 `seller-relay/README.md` 顶部写明 "Forked from https://github.com/Wei-Shaw/sub2api (LGPL-3.0)"
+  - 在 `seller-relay/README.md` 顶部写明 "Forked from [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) (LGPL-3.0)"
   - 修改文件时保留原文件头版权（如果有）
 - AI Bazaar 整体仓库用 **AGPL-3.0**，与 LGPL-3.0 兼容（AGPL 严于 LGPL）
 
