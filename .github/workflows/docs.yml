@@ -75,19 +75,27 @@ jobs:
       - name: Scan for legally-risky phrasing
         run: |
           set -e
-          # Tokens that should never appear in user-facing text. Reviewer can
-          # extend this list as the project matures.
+          # Authoritative list lives in docs/PITFALLS.md §9.2.
+          # Keep these two in sync when adding/removing phrases.
           FORBIDDEN=(
             "resell account"
             "share account credentials"
             "bypass subscription"
             "untraceable"
+            "use anyone's claude subscription"
+            "bypass openai subscription"
+            "resell api access"
+            "evade platform"
+            "anti-fraud bypass"
+            "反风控"
+            "绕过风控"
           )
           FAIL=0
           for word in "${FORBIDDEN[@]}"; do
-            # Skip the docs that explicitly enumerate these as forbidden.
-            if grep -RIn --include='*.md' \
+            # Skip docs that explicitly enumerate these as forbidden.
+            if grep -RIin --include='*.md' \
                  --exclude='GLOSSARY.md' --exclude='HANDOFF.md' \
+                 --exclude='PITFALLS.md' \
                  -F "$word" docs/ README.md SECURITY.md CONTRIBUTING.md 2>/dev/null; then
               echo "::error::forbidden phrase \"$word\" found"
               FAIL=1

@@ -13,6 +13,10 @@
 
 - **PublicKey**：32 bytes，编码为 base64url（无 padding）
 - **PublicKeyFingerprint**：BLAKE3-128 of PublicKey，编码为 base32（小写，无 padding），20 字符
+  - **BLAKE3-128 的精确定义**：取 BLAKE3 标准 256-bit 输出的**前 16 字节**。
+    伪代码：`fp_bytes = blake3::hash(pubkey).as_bytes()[..16]`。
+    Rust 用 `blake3::hash(&pk).as_bytes()` 取前 16 字节；Go 用 `lukechampine.com/blake3` 的 `Sum256(pk)` 再切片。
+    **不要用** `finalize_xof()` 读 16 字节（XOF 模式输出与截断模式不同）。
 - **示例**：`abcdefghij1234567890`
 
 ### 1.2 路径与文件名
@@ -33,8 +37,11 @@ manifest.json
 ### 1.3 ID 生成
 
 - `req_id`：UUID v7（时间排序）
-- `tx_id`：BLAKE3-128 of `req_id || winner_fp || final_price`，base32
-- `rev_id`：BLAKE3-128 of `tx_id || reviewer_fp`，base32
+- `tx_id`：BLAKE3-128 of `req_id_bytes || winner_fp_bytes || final_price_u64_le`，base32
+- `rev_id`：BLAKE3-128 of `tx_id_bytes || rater_fp_bytes`，base32
+
+**BLAKE3-128 与 §1.1 同义**：取 256-bit 输出的前 16 字节。
+**整数编码统一用 little-endian**（`final_price_u64_le` 表示 8-byte LE）。
 
 ---
 
@@ -53,17 +60,19 @@ manifest.json
 ```
 signature = Ed25519_Sign(
     private_key,
-    SHA256( canonical_json(message_without_signature_field) )
+    canonical_json(message_without_signature_field)
 )
 ```
+
+**重要**：直接对 canonical_json 字节签名，**不要预先 hash**。Ed25519 内部已经做 SHA-512，再加一层 SHA-256 会偏离 RFC 8032，且与 Rust `ed25519-dalek` / Go `crypto/ed25519` 默认行为不一致，导致 Rust/Go 实现互不兼容。
 
 **canonical_json 规则**（必须 Rust / Go 两边一致）：
 
 1. 所有 object key 按 UTF-8 字节序排序
 2. 无空格、无换行
-3. 数字：整数原样输出；浮点用 `f64` shortest 表示（**协议中尽量不要用浮点**，价格用整数微单位）
-4. null / true / false 全小写
-5. 字符串按 RFC 8259 escape，最小化转义
+3. 整数原样输出；**协议禁止用浮点**（价格全部用整数微单位 u64）
+4. 字符串按 RFC 8259 escape，最小化转义（仅 `"`、`\`、`\b\f\n\r\t`、U+0000–U+001F 用 `\u00XX`，其余原样输出）
+5. 数组保持声明顺序，不重排序
 
 ### 2.3 签名字段位置
 
@@ -87,8 +96,11 @@ signature = Ed25519_Sign(
 ### 2.4 时间戳
 
 - 格式：RFC 3339，UTC，带 Z 后缀，无毫秒
-- 验证规则：接收时若 `|now - timestamp| > 24h`，拒绝该消息
-- 例外：`tx/*.json` 不受此限（要保留历史）
+- 验证规则（与 PITFALLS §4.3 一致）：
+  - 拒绝 `timestamp > now + 5min`（防伪造未来戳）
+  - 拒绝 `timestamp < now - 24h`（容忍最长 24h 时钟回退 / 网络延迟）
+- 例外：`tx/*.json` 和 `reputation/*.json` 不受新鲜度限制（要保留历史）
+- 实现要点：使用进程启动时的单调时钟做相对验证；**不要**信任外部 NTP 作信任根
 
 ---
 
@@ -184,18 +196,24 @@ signature = Ed25519_Sign(
 }
 ```
 
-**commitment 计算**：
+**commitment 计算**（Rust 和 Go 必须 byte-for-byte 一致）：
 
 ```
 commitment = BLAKE3(
-    CBOR.encode({
-        "req_id": <bytes from req_id UUID>,
-        "seller_fp": <20-byte fingerprint>,
-        "price_micro_usdc": <u64>,
-        "nonce": <32 random bytes>,
+    canonical_cbor({
+        "nonce":            <bstr, 32 bytes>,
+        "price_micro_usdc": <uint, u64>,
+        "req_id":           <bstr, 16 bytes from UUID>,
+        "seller_fp":        <bstr, 16 bytes>,
     })
 )
 ```
+
+**重要**：
+- BLAKE3 输出取**完整 32 字节**（不是 BLAKE3-128 的 16 字节；commitment 字段长度 = 32）
+- CBOR map keys 按上方字典序排列；Rust 用 `ciborium::ser::into_writer` + 手动构造 BTreeMap，Go 用 `github.com/fxamacker/cbor/v2` 的 `core deterministic` mode
+- `seller_fp` 是 PublicKeyFingerprint（16 bytes 原始字节，不是 base32 编码后的字符串）
+- `req_id` 是 UUID 的 16 字节 raw（不是连字符字符串）
 
 **约束**：
 - 同一 seller 对同一 req_id 只能有一个 commit。重复 commit → 后到的拒绝，并视为试图作弊
@@ -246,7 +264,9 @@ encrypted_to_buyer = base64url(
 
 **约束**：
 - 必须在 `request.reveal_deadline` 之前提交
-- 解密后 BLAKE3(price || nonce || seller_fp || req_id) 必须等于 commit.commitment，否则视为作弊，声誉惩罚
+- 解密后必须用**与 §3.3 完全相同的 canonical_cbor 构造**重算 commitment 验证（即把 `(price_micro_usdc, nonce, req_id, seller_fp)` 按 §3.3 公式重算 BLAKE3 32 字节，与 commit 文件里的 `commitment` 字段比对）。
+  ❌ **不要**用其他形式（如直接拼接 `price || nonce || ...`）——必须走 CBOR
+- 验证失败 → 视为作弊，声誉惩罚 + error code `2005 commitment_mismatch`
 
 ### 3.5 Transaction（成交记录）
 
@@ -261,6 +281,7 @@ encrypted_to_buyer = base64url(
   "req_id": "01998b6f-...",
   "buyer_pubkey": "<base64url>",
   "winner_pubkey": "<base64url>",
+  "winning_bid_micro_usdc": 4200000,
   "final_price_micro_usdc": 4500000,
   "quantity_tokens": 100000,
   "all_commitments": [
@@ -278,17 +299,35 @@ encrypted_to_buyer = base64url(
 }
 ```
 
+**Vickrey（second-price sealed-bid）拍卖规则**：
+
+| 场景 | `winner_pubkey` | `winning_bid_micro_usdc` | `final_price_micro_usdc`（实际付款） |
+|------|----------------|--------------------------|---------------------------------------|
+| ≥ 2 个有效 reveal | 最低价 reveal 的 seller | 该 seller 的 reveal 价 | **第二低**有效 reveal 价 |
+| 仅 1 个有效 reveal | 该 seller | 该 seller 的 reveal 价 | `request.max_price_micro_usdc`（reservation price 兜底） |
+| 0 个有效 reveal | —— | —— | request 进入 `EXPIRED`，不生成 tx |
+| 最低价并列（含 N 路) | 用 `BLAKE3(req_id_bytes ‖ sorted_seller_fps_bytes)` 的最后一个字节 mod N 选 winner（**确定性**：任何买家本地算出同一个胜者） | 该 seller 的 reveal 价 | 第二低有效 reveal 价（若所有人并列同一最低价，等于该价） |
+
+**为什么是 Vickrey**：让卖家"如实报真实成本"成为占优策略。卖家不需要去猜对手出多少。
+
+**字段语义**：
+- `winning_bid_micro_usdc`：winner 自己的 reveal 价（用于审计 + 落选者验证）
+- `final_price_micro_usdc`：winner 实际收到的款（state channel ticket 计费基准）
+- `final_price_micro_usdc ≥ winning_bid_micro_usdc` 始终成立（second-price 必然 ≥ first-price）
+
 **双签名**：
 - buyer 先签所有字段（除两个 signature），把 `buyer_signature` 填上
 - 把 tx 通过 Noise 信道给 winner
 - winner 验证后追加 `seller_signature`
 - 任一方签完即可 PR 到 GitHub
 
-**all_commitments**：包含**所有**参与 commit 的 seller 哈希，让落选者事后能验证"我的报价确实比成交价高"。
+**all_commitments**：包含**所有**参与 commit 的 seller 哈希（含未 reveal / reveal 失败者）。让落选者事后能验证：
+1. 自己的 commitment 在列表里 → 没被买家无声忽略
+2. 自己的 reveal 价 ≥ `final_price_micro_usdc` → 买家挑 winner 没作弊（落选者拿到 tx 后用自己的 nonce 重算 commitment 比对，再核对中标价合理）
 
 ### 3.6 State Channel Ticket（计量凭证）
 
-**不上传 GitHub**。仅在买家本地累积 + 卖家终结时上链。
+**不上传 GitHub**。仅在双方本地累积 + 卖家终结时上链。
 
 ```json
 {
@@ -306,28 +345,46 @@ encrypted_to_buyer = base64url(
 **约束**：
 - `seq` 单调递增
 - `cumulative_*` 单调递增
-- `cumulative_price_micro_usdc / cumulative_tokens` 必须等于 tx 里的 final_price / quantity（避免买家偷改单价）
+- `cumulative_price_micro_usdc / cumulative_tokens` 必须等于 tx 里的 `final_price_micro_usdc / quantity_tokens`（避免买家偷改单价）
 - `cumulative_tokens <= tx.quantity_tokens`
 - 卖家每收到一张 ticket 都验证签名，存盘
 - 上链时只提交"序号最大"的那张
 
+**传输信道（必读）**：
+
+ticket **不通过 GitHub** 传递；它走买卖双方建立的 Noise 信道。具体：
+
+1. winner 完成 §3.5 双签名后，使用 listing 中声明的 `noise_static_pubkey` 在 `endpoint_hints` 给出的某个地址建立 Noise_IK session
+2. buyer-cli 把所有上游 API 请求经过该 session 转发到 seller-relay
+3. **每次请求成功（上游返回完整响应 + usage）后**，buyer-cli 在同一 session 上 piggyback 一张新的 ticket（`seq = 上一个 + 1`，`cumulative_*` 累加）
+4. seller-relay 校验签名 + 单调性后存盘；任一项不通过返回 error code `4003 ticket_signature_invalid` / `4004 ticket_sequence_violation`，并停止转发后续请求
+5. 服务结束（quantity 用尽 / buyer 主动关闭 / timelock 临近）→ seller 拿 `seq` 最大的那张 ticket 上链 claim
+
+**如果 Noise session 中断**：buyer-cli 重连后，必须从"卖家上一次 ack 的 seq" + 1 继续；不能 fork seq 序列。
+
 ### 3.7 服务命名（Service IDs）
 
-格式：`<vendor>.<model_family>[-<variant>][@<version>]`
+**协议层 ID** 格式：`<vendor>.<model_family>[-<variant>]`，仅用小写连字符与点。
 
-| ID | 上游 |
-|----|------|
-| `anthropic.claude-sonnet-4.5` | api.anthropic.com（OAuth subscription） |
-| `anthropic.claude-opus-4.5` | 同上 |
-| `anthropic.claude-haiku-4.5` | 同上 |
-| `openai.gpt-5` | api.openai.com（Codex OAuth） |
-| `openai.o5` | 同上 |
-| `google.gemini-3-pro` | Gemini API |
-| `google.gemini-3-flash` | Gemini API |
-| `google.antigravity-gemini-3` | cloudcode-pa.googleapis.com |
-| `google.antigravity-claude-opus-4.5` | 同上 |
+| 协议 ID（出现在 listing / request / IPC） | 上游真实 model ID（仅 seller-relay 内部用） | 上游 endpoint |
+|----|------|---|
+| `anthropic.claude-sonnet-4-5` | `claude-sonnet-4-5-20250929` | `api.anthropic.com` (OAuth subscription) |
+| `anthropic.claude-opus-4-5` | `claude-opus-4-5-20251101` | 同上 |
+| `anthropic.claude-haiku-4-5` | `claude-haiku-4-5-20251001` | 同上 |
+| `openai.gpt-5` | `gpt-5`（占位，实际跟 Codex CLI 漂移） | `api.openai.com` (Codex OAuth) |
+| `openai.o5` | `o5` | 同上 |
+| `google.gemini-3-pro` | `gemini-3-pro-preview-XX` | `generativelanguage.googleapis.com` |
+| `google.gemini-3-flash` | `gemini-3-flash-preview-XX` | 同上 |
+| `google.antigravity-gemini-3` | 由 Antigravity 网关解析 | `cloudcode-pa.googleapis.com` |
+| `google.antigravity-claude-opus-4-5` | 由 Antigravity 网关解析 | 同上 |
 
-> 版本号一般省略；上游模型 ID 漂移由 seller-relay 处理。
+**命名规则**：
+- 协议层全部用 **连字符**（`claude-sonnet-4-5`），不用点号或下划线
+- 上游真实 ID（含日期戳）的漂移由 seller-relay `internal/pkg/<vendor>/` 包内部映射
+- 买家 / 买家 UI / 买家 CLI **永远只**写协议层 ID
+- 协议层 ID 一旦发布不能改；上游 ID 漂移由 seller-relay 适配（不影响协议）
+
+> 协议层 ID 表的更新走 `proto:` 类型 PR，必须在 §10 修改流程下记录。
 
 ---
 
@@ -463,10 +520,19 @@ RPC OpenEndpoint
   }
   result: {
     endpoint_id: string (uuid),
-    local_url: string (e.g. "http://127.0.0.1:11401"),
-    api_key: string (40 bytes hex),
+    local_url: string,
+    api_key: string,
     protocol_compat: ["anthropic", "openai", "gemini"]
   }
+  // 字段语义：
+  //   local_url:  seller-relay 在卖家本机为这个 endpoint 暴露的 HTTP 监听地址
+  //               (例如 "http://127.0.0.1:11401")。这是 seller-relay 与
+  //               seller-ctl 之间的 internal URL；不会直接暴露给 buyer。
+  //               buyer 通过 seller listing 中的 endpoint_hints / Noise
+  //               session 触达；seller-ctl 把 Noise 解出的请求转发到这个
+  //               local_url。
+  //   api_key:    40-char hex 字符串（= 20 bytes 随机），seller-relay 用来
+  //               鉴权这个 endpoint 上的请求。仅在 seller 本机有效。
 
 RPC CloseEndpoint
   params: { endpoint_id: string }

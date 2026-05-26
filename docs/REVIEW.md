@@ -4,6 +4,20 @@
 
 ---
 
+## Severity 定义
+
+Reviewer 在 review 中标的 issue 用三档 severity，决定是否阻塞当前 milestone：
+
+| 级别 | 含义 | 处理 |
+|------|------|------|
+| **P0** | 阻塞性问题：触碰 PITFALLS 🔴 / 协议契约违反 / 资金安全 / secret 泄露 / 编译失败 / 测试不通过 | **当前 PR 修复**，修完才能合 |
+| **P1** | 严重但不阻塞：UX bug、API 设计欠佳、覆盖率明显不足、文档不符 | 记入 `KNOWN_ISSUES.md`，**下个 milestone 内修** |
+| **P2** | 风格 / 优化建议：命名、注释清晰度、性能微调 | 可选修；不写 KNOWN_ISSUES |
+
+Reviewer 在 inline comment 里用 `[P0]` / `[P1]` / `[P2]` 前缀标注。Codex 必须按级别处理；不同意分级 → 在 PR 评论里讨论 **再** 修，不要默默忽略。
+
+---
+
 ## 通用 Review 标准（每个 milestone 都过一遍）
 
 ### Commit 质量
@@ -272,14 +286,16 @@ cargo test -p protocol --test commit_reveal_e2e -- --nocapture
 
 ### 抽查
 
-- 中标 seller 的 `final_price` 与其 reveal 价格一致
-- 落选 seller 能"事后验证"自己的价格 ≥ 中标价
+- 中标 seller 的 `winning_bid_micro_usdc` 与其 reveal 价格一致
+- `final_price_micro_usdc` 等于第二低 reveal 价（≥ 2 reveal 时）；等于 `max_price` 仅当只有 1 个有效 reveal
+- 落选 seller 能"事后验证"自己的 reveal 价 ≥ `final_price_micro_usdc`
 
 ### 阻塞放行
 
 - 竞价 race condition：两个 seller 同时 commit 同一 req_id，应一个成功一个失败
 - 协议消息超时不接收
-- 时间戳偏差超过 24h 拒绝
+- 时间戳偏差超过 §2.4 容差（+5min / -24h）拒绝
+- **Vickrey 边界正确**：单一 reveal → 付 `max_price`；并列最低 → 用 `BLAKE3(req_id ‖ sorted_seller_fps)` 确定性选 winner
 
 ---
 
@@ -410,19 +426,24 @@ go-licenses report ./... > licenses-go.txt
 
 ## 出现问题时的处理
 
-### 如果 reviewer 找到 P0 问题
+### 如果 reviewer 标 P0 问题
 
 - Codex 必须立即停止下一周工作
 - 在当前 PR 修复
 - 修复后再次提交 review 申请
 
-### 如果 reviewer 找到非 P0 问题
+### 如果 reviewer 标 P1 问题
 
 - 记录到 `KNOWN_ISSUES.md`
-- 可以放到下周修
-- 不阻塞 milestone 放行
+- **下个** milestone 之内修完
+- 不阻塞当前 milestone 放行
 
-### 如果 Codex 不同意 reviewer 意见
+### 如果 reviewer 标 P2 问题
+
+- 可选修
+- 不进 KNOWN_ISSUES，不阻塞放行
+
+### 如果 Codex 不同意 reviewer 分级
 
 - 在 PR 评论里说明理由
 - 引用具体代码 / 测试 / 文档

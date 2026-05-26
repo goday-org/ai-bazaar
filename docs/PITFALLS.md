@@ -227,18 +227,20 @@ impl std::fmt::Debug for PrivateKey {
 
 ```
 commitment = BLAKE3(
-    CBOR.encode({
-        "req_id": <bytes from req_id UUID>,
-        "seller_fp": <20-byte fingerprint>,
-        "price_micro_usdc": <u64>,
-        "nonce": <32 random bytes>,
+    canonical_cbor({
+        "nonce":            <bstr 32 bytes>,
+        "price_micro_usdc": <uint u64>,
+        "req_id":           <bstr 16 bytes>,
+        "seller_fp":        <bstr 16 bytes>,
     })
 )
 ```
 
 **🔴 陷阱**：
-- CBOR 必须用 **canonical 形式**（map keys sorted）
-- 如果用 serde_cbor / ciborium，必须显式开 canonical mode
+- CBOR 必须用 **canonical 形式**（map keys 字典序排序，不能依赖 HashMap 的随机顺序）
+- Rust：`ciborium::ser::into_writer` 配合 `BTreeMap`；Go：`fxamacker/cbor` 的 `EncOptions.Sort = SortLengthFirst` + `cbor.CTAP2EncOptions()` 或等价 deterministic
+- BLAKE3 输出取 32 字节（不是 fingerprint 那种 16 字节截断）
+- §3.4 reveal 验证**必须**用同样的 CBOR 构造重算，不能用别的拼接方式
 - Rust 和 Go 实现必须用同一组测试向量验证
 
 ---
@@ -440,10 +442,31 @@ tracing::info!(
 
 ### 9.2 ToS 措辞
 
+> **CI 强制**：本节"权威禁词列表"由 `.github/workflows/docs.yml` 的
+> `forbidden-words` job 强制扫描；任何匹配命中（除了 GLOSSARY.md /
+> HANDOFF.md / PITFALLS.md 这三份枚举文档自身）会让 PR 红 CI。
+
+**权威禁词列表**（短语 / 子串匹配，大小写不敏感）：
+
+```
+resell account
+share account credentials
+bypass subscription
+untraceable
+use anyone's claude subscription
+bypass openai subscription
+resell api access
+evade platform
+anti-fraud bypass
+反风控
+绕过风控
+```
+
 ❌ 不要写：
 - "use anyone's Claude subscription"
 - "bypass OpenAI subscription"
 - "resell API access"
+- "untraceable" 与 "anonymous" 同句出现
 
 ✅ 可以写：
 - "share unused API quota with consent"

@@ -28,14 +28,16 @@
 ### 2.1 第一步：纯 clone，不改任何代码
 
 ```bash
+mkdir -p seller-relay
 cd seller-relay
 git clone --depth=1 https://github.com/Wei-Shaw/sub2api.git tmp-upstream
 mv tmp-upstream/backend/* .
+mv tmp-upstream/backend/.dockerignore tmp-upstream/backend/.golangci.yml . 2>/dev/null || true
 mv tmp-upstream/LICENSE LICENSE
 rm -rf tmp-upstream
 cd ..
 git add seller-relay
-git commit -m "chore: import sub2api backend baseline (LGPL-3.0)"
+git commit -m "chore(strip): import sub2api backend baseline (LGPL-3.0)"
 ```
 
 ### 2.2 验证基线可编译
@@ -295,18 +297,45 @@ client, err := ent.Open("sqlite3", cfg.Database.DSN+"?_pragma=journal_mode(WAL)&
 - `Redis.Enabled` 默认 `false`
 - 启动时如果 `Redis.Enabled=false`，跳过 Redis 连接
 
-#### 9.3 Migration 合并
+#### 9.3 Migration 重建（**不是手工 cat sql**）
+
+sub2api 的 migration 由 ent 自动生成（不是手写 SQL）。直接 `cat` 拼接源 SQL 文件不可行——schema 已经被裁剪，旧 migration 引用了已删除的表。
+
+**正确做法**：
 
 ```bash
-# 把保留 schema 对应的所有 migration 合并为一个 init.sql
-cat migrations/0*.sql > migrations/001_init.sql  # 手动检查内容
-rm migrations/0[02-9]*.sql  # 删掉旧的零散迁移
+cd seller-relay
+
+# 1. 备份现有 migrations 目录（仅供查阅）
+mv migrations migrations.legacy
+
+# 2. 起一个干净的 SQLite 数据库做 baseline
+mkdir -p migrations
+sqlite3 /tmp/seller-relay-baseline.db ".databases"
+
+# 3. 用 ent 在裁剪后的 schema 基础上生成 init migration
+go run -mod=mod entgo.io/ent/cmd/ent new --target ./ent/schema init  # 仅在缺时
+go run -mod=mod ariga.io/atlas/cmd/atlas migrate diff init \
+    --dir "file://migrations?format=atlas" \
+    --to "ent://ent/schema" \
+    --dev-url "sqlite:///tmp/seller-relay-baseline.db?_fk=1"
+
+# 4. 验证生成的 migration 能干净 apply
+go run -mod=mod ariga.io/atlas/cmd/atlas migrate apply \
+    --dir "file://migrations?format=atlas" \
+    --url "sqlite://${HOME}/.ai-bazaar/seller.db?_fk=1"
 ```
+
+**结果**：
+- `migrations/` 下生成 1 个 `*_init.sql` + `atlas.sum`
+- `migrations.legacy/` 留作参考（commit 时 .gitignore 它）
+
+**Atlas 是 ent 官方推荐的 migration 工具**，比手写 SQL 安全（自动 checksum / 拒绝偏差）。
 
 **验收**：
 ```bash
-rtk rm -f ~/.ai-bazaar/seller.db
-rtk go run ./cmd/server  # 启动应成功，自动建表
+rm -f ~/.ai-bazaar/seller.db
+go run ./cmd/server  # 启动应成功，自动 apply migration 建表
 sqlite3 ~/.ai-bazaar/seller.db ".tables"  # 应列出保留的所有表
 ```
 

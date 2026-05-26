@@ -122,8 +122,12 @@ IPC 协议在 `PROTOCOL.md §6 Control Plane` 定义。Go 这边只暴露 4 个 
 ### 工程要求
 
 - 私钥默认存系统 keychain（macOS Keychain / Windows Credential Store / Linux Secret Service）
-- 备份导出格式：BIP39 助记词（24 词）派生 → Ed25519 keypair
-- 派生路径：`m/44'/0'/0'/0/0`（自定义 coin type，避免与比特币撞）
+- 备份导出格式：BIP-39 助记词（24 词，256-bit entropy）→ 派生 Ed25519 keypair
+- **派生方案：SLIP-0010（Ed25519 curve）**，**不要**自创 HKDF 派生
+  - 理由：SLIP-0010 是 Ed25519 层次派生的事实标准，被 Ledger / Solana / Stellar 等生态采用；用户用同一组助记词在硬件钱包 / 其他客户端能复现同一身份
+  - Rust 实现：crate `slip10_ed25519`（见 ADR-006 白名单）
+  - **禁用** `hkd32` 等私有派生方案（会让助记词跨钱包不可移植）
+- 派生路径：`m/44'/9999'/0'/0'/0'`（按 SLIP-0010，所有节点必须 hardened；coin type `9999` 占位至 SLIP-44 注册前）
 - 签名算法：纯 Ed25519 + SHA-512（**不要用** Ed25519ph / Ed25519ctx）
 
 ---
@@ -158,8 +162,9 @@ IPC 协议在 `PROTOCOL.md §6 Control Plane` 定义。Go 这边只暴露 4 个 
 
 ```toml
 ed25519-dalek = "2"           # Ed25519 签名
+x25519-dalek = "2"            # X25519 ECDH（reveal 加密 / Noise）
 sha2 = "0.10"                 # SHA-256 / SHA-512
-blake3 = "1"                  # 快速哈希（commitments）
+blake3 = "1"                  # 快速哈希（commitments / fingerprints）
 snow = "0.9"                  # Noise protocol framework
 age = "0.10"                  # 文件加密
 rand = "0.8"                  # CSPRNG
@@ -167,7 +172,7 @@ zeroize = "1"                 # 内存擦除
 chacha20poly1305 = "0.10"     # AEAD
 hkdf = "0.12"                 # HKDF
 bip39 = "2"                   # 助记词
-hkd32 = "0.7"                 # 层次化派生
+slip10_ed25519 = "0.1"        # SLIP-0010 Ed25519 层次派生（ADR-004）
 ```
 
 ### 序列化
