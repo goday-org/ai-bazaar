@@ -193,18 +193,24 @@ signature = Ed25519_Sign(
 }
 ```
 
-**commitment 计算**：
+**commitment 计算**（Rust 和 Go 必须 byte-for-byte 一致）：
 
 ```
 commitment = BLAKE3(
-    CBOR.encode({
-        "req_id": <bytes from req_id UUID>,
-        "seller_fp": <20-byte fingerprint>,
-        "price_micro_usdc": <u64>,
-        "nonce": <32 random bytes>,
+    canonical_cbor({
+        "nonce":            <bstr, 32 bytes>,
+        "price_micro_usdc": <uint, u64>,
+        "req_id":           <bstr, 16 bytes from UUID>,
+        "seller_fp":        <bstr, 16 bytes>,
     })
 )
 ```
+
+**重要**：
+- BLAKE3 输出取**完整 32 字节**（不是 BLAKE3-128 的 16 字节；commitment 字段长度 = 32）
+- CBOR map keys 按上方字典序排列；Rust 用 `ciborium::ser::into_writer` + 手动构造 BTreeMap，Go 用 `github.com/fxamacker/cbor/v2` 的 `core deterministic` mode
+- `seller_fp` 是 PublicKeyFingerprint（16 bytes 原始字节，不是 base32 编码后的字符串）
+- `req_id` 是 UUID 的 16 字节 raw（不是连字符字符串）
 
 **约束**：
 - 同一 seller 对同一 req_id 只能有一个 commit。重复 commit → 后到的拒绝，并视为试图作弊
@@ -255,7 +261,9 @@ encrypted_to_buyer = base64url(
 
 **约束**：
 - 必须在 `request.reveal_deadline` 之前提交
-- 解密后 BLAKE3(price || nonce || seller_fp || req_id) 必须等于 commit.commitment，否则视为作弊，声誉惩罚
+- 解密后必须用**与 §3.3 完全相同的 canonical_cbor 构造**重算 commitment 验证（即把 `(price_micro_usdc, nonce, req_id, seller_fp)` 按 §3.3 公式重算 BLAKE3 32 字节，与 commit 文件里的 `commitment` 字段比对）。
+  ❌ **不要**用其他形式（如直接拼接 `price || nonce || ...`）——必须走 CBOR
+- 验证失败 → 视为作弊，声誉惩罚 + error code `2005 commitment_mismatch`
 
 ### 3.5 Transaction（成交记录）
 
