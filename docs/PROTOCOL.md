@@ -324,7 +324,7 @@ encrypted_to_buyer = base64url(
 
 ### 3.6 State Channel Ticket（计量凭证）
 
-**不上传 GitHub**。仅在买家本地累积 + 卖家终结时上链。
+**不上传 GitHub**。仅在双方本地累积 + 卖家终结时上链。
 
 ```json
 {
@@ -342,28 +342,46 @@ encrypted_to_buyer = base64url(
 **约束**：
 - `seq` 单调递增
 - `cumulative_*` 单调递增
-- `cumulative_price_micro_usdc / cumulative_tokens` 必须等于 tx 里的 final_price / quantity（避免买家偷改单价）
+- `cumulative_price_micro_usdc / cumulative_tokens` 必须等于 tx 里的 `final_price_micro_usdc / quantity_tokens`（避免买家偷改单价）
 - `cumulative_tokens <= tx.quantity_tokens`
 - 卖家每收到一张 ticket 都验证签名，存盘
 - 上链时只提交"序号最大"的那张
 
+**传输信道（必读）**：
+
+ticket **不通过 GitHub** 传递；它走买卖双方建立的 Noise 信道。具体：
+
+1. winner 完成 §3.5 双签名后，使用 listing 中声明的 `noise_static_pubkey` 在 `endpoint_hints` 给出的某个地址建立 Noise_IK session
+2. buyer-cli 把所有上游 API 请求经过该 session 转发到 seller-relay
+3. **每次请求成功（上游返回完整响应 + usage）后**，buyer-cli 在同一 session 上 piggyback 一张新的 ticket（`seq = 上一个 + 1`，`cumulative_*` 累加）
+4. seller-relay 校验签名 + 单调性后存盘；任一项不通过返回 error code `4003 ticket_signature_invalid` / `4004 ticket_sequence_violation`，并停止转发后续请求
+5. 服务结束（quantity 用尽 / buyer 主动关闭 / timelock 临近）→ seller 拿 `seq` 最大的那张 ticket 上链 claim
+
+**如果 Noise session 中断**：buyer-cli 重连后，必须从"卖家上一次 ack 的 seq" + 1 继续；不能 fork seq 序列。
+
 ### 3.7 服务命名（Service IDs）
 
-格式：`<vendor>.<model_family>[-<variant>][@<version>]`
+**协议层 ID** 格式：`<vendor>.<model_family>[-<variant>]`，仅用小写连字符与点。
 
-| ID | 上游 |
-|----|------|
-| `anthropic.claude-sonnet-4.5` | api.anthropic.com（OAuth subscription） |
-| `anthropic.claude-opus-4.5` | 同上 |
-| `anthropic.claude-haiku-4.5` | 同上 |
-| `openai.gpt-5` | api.openai.com（Codex OAuth） |
-| `openai.o5` | 同上 |
-| `google.gemini-3-pro` | Gemini API |
-| `google.gemini-3-flash` | Gemini API |
-| `google.antigravity-gemini-3` | cloudcode-pa.googleapis.com |
-| `google.antigravity-claude-opus-4.5` | 同上 |
+| 协议 ID（出现在 listing / request / IPC） | 上游真实 model ID（仅 seller-relay 内部用） | 上游 endpoint |
+|----|------|---|
+| `anthropic.claude-sonnet-4-5` | `claude-sonnet-4-5-20250929` | `api.anthropic.com` (OAuth subscription) |
+| `anthropic.claude-opus-4-5` | `claude-opus-4-5-20251101` | 同上 |
+| `anthropic.claude-haiku-4-5` | `claude-haiku-4-5-20251001` | 同上 |
+| `openai.gpt-5` | `gpt-5`（占位，实际跟 Codex CLI 漂移） | `api.openai.com` (Codex OAuth) |
+| `openai.o5` | `o5` | 同上 |
+| `google.gemini-3-pro` | `gemini-3-pro-preview-XX` | `generativelanguage.googleapis.com` |
+| `google.gemini-3-flash` | `gemini-3-flash-preview-XX` | 同上 |
+| `google.antigravity-gemini-3` | 由 Antigravity 网关解析 | `cloudcode-pa.googleapis.com` |
+| `google.antigravity-claude-opus-4-5` | 由 Antigravity 网关解析 | 同上 |
 
-> 版本号一般省略；上游模型 ID 漂移由 seller-relay 处理。
+**命名规则**：
+- 协议层全部用 **连字符**（`claude-sonnet-4-5`），不用点号或下划线
+- 上游真实 ID（含日期戳）的漂移由 seller-relay `internal/pkg/<vendor>/` 包内部映射
+- 买家 / 买家 UI / 买家 CLI **永远只**写协议层 ID
+- 协议层 ID 一旦发布不能改；上游 ID 漂移由 seller-relay 适配（不影响协议）
+
+> 协议层 ID 表的更新走 `proto:` 类型 PR，必须在 §10 修改流程下记录。
 
 ---
 
@@ -499,10 +517,19 @@ RPC OpenEndpoint
   }
   result: {
     endpoint_id: string (uuid),
-    local_url: string (e.g. "http://127.0.0.1:11401"),
-    api_key: string (40 bytes hex),
+    local_url: string,
+    api_key: string,
     protocol_compat: ["anthropic", "openai", "gemini"]
   }
+  // 字段语义：
+  //   local_url:  seller-relay 在卖家本机为这个 endpoint 暴露的 HTTP 监听地址
+  //               (例如 "http://127.0.0.1:11401")。这是 seller-relay 与
+  //               seller-ctl 之间的 internal URL；不会直接暴露给 buyer。
+  //               buyer 通过 seller listing 中的 endpoint_hints / Noise
+  //               session 触达；seller-ctl 把 Noise 解出的请求转发到这个
+  //               local_url。
+  //   api_key:    40-char hex 字符串（= 20 bytes 随机），seller-relay 用来
+  //               鉴权这个 endpoint 上的请求。仅在 seller 本机有效。
 
 RPC CloseEndpoint
   params: { endpoint_id: string }
