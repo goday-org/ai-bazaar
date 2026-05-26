@@ -278,6 +278,7 @@ encrypted_to_buyer = base64url(
   "req_id": "01998b6f-...",
   "buyer_pubkey": "<base64url>",
   "winner_pubkey": "<base64url>",
+  "winning_bid_micro_usdc": 4200000,
   "final_price_micro_usdc": 4500000,
   "quantity_tokens": 100000,
   "all_commitments": [
@@ -295,13 +296,31 @@ encrypted_to_buyer = base64url(
 }
 ```
 
+**Vickrey（second-price sealed-bid）拍卖规则**：
+
+| 场景 | `winner_pubkey` | `winning_bid_micro_usdc` | `final_price_micro_usdc`（实际付款） |
+|------|----------------|--------------------------|---------------------------------------|
+| ≥ 2 个有效 reveal | 最低价 reveal 的 seller | 该 seller 的 reveal 价 | **第二低**有效 reveal 价 |
+| 仅 1 个有效 reveal | 该 seller | 该 seller 的 reveal 价 | `request.max_price_micro_usdc`（reservation price 兜底） |
+| 0 个有效 reveal | —— | —— | request 进入 `EXPIRED`，不生成 tx |
+| 最低价并列（含 N 路) | 用 `BLAKE3(req_id_bytes ‖ sorted_seller_fps_bytes)` 的最后一个字节 mod N 选 winner（**确定性**：任何买家本地算出同一个胜者） | 该 seller 的 reveal 价 | 第二低有效 reveal 价（若所有人并列同一最低价，等于该价） |
+
+**为什么是 Vickrey**：让卖家"如实报真实成本"成为占优策略。卖家不需要去猜对手出多少。
+
+**字段语义**：
+- `winning_bid_micro_usdc`：winner 自己的 reveal 价（用于审计 + 落选者验证）
+- `final_price_micro_usdc`：winner 实际收到的款（state channel ticket 计费基准）
+- `final_price_micro_usdc ≥ winning_bid_micro_usdc` 始终成立（second-price 必然 ≥ first-price）
+
 **双签名**：
 - buyer 先签所有字段（除两个 signature），把 `buyer_signature` 填上
 - 把 tx 通过 Noise 信道给 winner
 - winner 验证后追加 `seller_signature`
 - 任一方签完即可 PR 到 GitHub
 
-**all_commitments**：包含**所有**参与 commit 的 seller 哈希，让落选者事后能验证"我的报价确实比成交价高"。
+**all_commitments**：包含**所有**参与 commit 的 seller 哈希（含未 reveal / reveal 失败者）。让落选者事后能验证：
+1. 自己的 commitment 在列表里 → 没被买家无声忽略
+2. 自己的 reveal 价 ≥ `final_price_micro_usdc` → 买家挑 winner 没作弊（落选者拿到 tx 后用自己的 nonce 重算 commitment 比对，再核对中标价合理）
 
 ### 3.6 State Channel Ticket（计量凭证）
 
