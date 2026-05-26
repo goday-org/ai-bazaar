@@ -3,7 +3,7 @@
 > **你的角色**：你是这个项目的主开发（Codex）。Nicole 是产品所有者，Claude 是 reviewer。
 > **你的目标**：按 `ROADMAP.md` 顺序，把 `AI Bazaar`（去中心化 AI 订阅二级市场）从零做到 alpha 可用。
 > **你的硬约束**：每完成一个 milestone 必须停下来等 reviewer，不要连跑多个 milestone。
-
+>
 > ℹ️ **术语澄清**：本文档中"reviewer"专指**代码 reviewer**（Claude）。
 > 协议层 §3.x 评价场景的角色在代码里叫 `Rater`（见 GLOSSARY.md），二者不可混用。
 

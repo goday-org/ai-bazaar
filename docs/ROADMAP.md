@@ -441,5 +441,5 @@ reviewer 与 alpha 用户分别能：
 
 ## 进度跟踪
 
-每周末以 PR 形式提交 `docs/progress/W{N}.md`（受 ruleset 保护，必须走 PR
-+ reviewer approval，与代码 PR 一致）。模板见 `docs/progress/TEMPLATE.md`。
+每周末以 PR 形式提交 `docs/progress/W{N}.md`（受 ruleset 保护，必须走
+PR 与 reviewer approval，与代码 PR 一致）。模板见 `docs/progress/TEMPLATE.md`。

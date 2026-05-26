@@ -8,17 +8,17 @@
 
 ---
 
-# W{N} 总结 — YYYY-MM-DD
+## W{N} 总结 — YYYY-MM-DD
 
-## 完成的任务
+### 完成的任务
 
 - [x] ...
 
-## 未完成 / 延期
+### 未完成 / 延期
 
 - [ ] ...，原因：...
 
-## 关键决策（DEVIATION）
+### 关键决策（DEVIATION）
 
 > 来自 commit body 里 `DEVIATION/CHANGE/REASON` 块的汇总，方便 reviewer
 > 一次看完。
@@ -28,20 +28,20 @@
   - CHANGE: ...
   - REASON: ...
 
-## 已知问题
+### 已知问题
 
 - ...
 
-## 验收命令输出
+### 验收命令输出
 
 ```bash
 # 贴 ROADMAP.md 中本 milestone 的验收命令实际输出
 ```
 
-## 下周计划
+### 下周计划
 
 - ...
 
-## 给 reviewer 的问题
+### 给 reviewer 的问题
 
 - ...
