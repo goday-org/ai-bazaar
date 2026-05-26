@@ -1,0 +1,98 @@
+name: docs
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - '.github/workflows/docs.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+
+permissions:
+  contents: read
+
+jobs:
+  markdown-link-check:
+    name: link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check internal markdown links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --offline
+            --include-fragments
+            --exclude-path 'docs/progress'
+            './docs/**/*.md'
+            './README.md'
+          fail: true
+
+  markdown-lint:
+    name: markdown lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint markdown
+        uses: DavidAnson/markdownlint-cli2-action@v17
+        with:
+          globs: |
+            docs/**/*.md
+            README.md
+          config: |
+            {
+              "default": true,
+              "MD013": false,
+              "MD024": { "siblings_only": true },
+              "MD033": false,
+              "MD041": false,
+              "MD036": false,
+              "MD040": false
+            }
+
+  proto-version-stamp:
+    name: protocol version present
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify protocol version line exists
+        run: |
+          if ! grep -qE '\*\*当前版本\*\*：`protocol_version: [0-9]+\.[0-9]+\.[0-9]+`' docs/PROTOCOL.md; then
+            echo "::error file=docs/PROTOCOL.md::PROTOCOL.md must declare protocol_version near top"
+            exit 1
+          fi
+
+  forbidden-words:
+    name: forbidden phrasing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for legally-risky phrasing
+        run: |
+          set -e
+          # Tokens that should never appear in user-facing text. Reviewer can
+          # extend this list as the project matures.
+          FORBIDDEN=(
+            "resell account"
+            "share account credentials"
+            "bypass subscription"
+            "untraceable"
+          )
+          FAIL=0
+          for word in "${FORBIDDEN[@]}"; do
+            # Skip the docs that explicitly enumerate these as forbidden.
+            if grep -RIn --include='*.md' \
+                 --exclude='GLOSSARY.md' --exclude='HANDOFF.md' \
+                 -F "$word" docs/ README.md 2>/dev/null; then
+              echo "::error::forbidden phrase \"$word\" found"
+              FAIL=1
+            fi
+          done
+          exit $FAIL

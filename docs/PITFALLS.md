@@ -88,7 +88,7 @@ extended-cache-ttl-2025-04-11
 | 字段 | 值 |
 |------|-----|
 | ClientID | `1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com` |
-| ClientSecret 默认 | `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` |
+| ClientSecret 默认 | `GOCSPX-<REDACTED>`（值已在 upstream sub2api 仓库公开；从 `internal/pkg/antigravity/oauth.go` 读，不要复制到本仓库） |
 | ClientSecret ENV 覆盖 | `ANTIGRAVITY_OAUTH_CLIENT_SECRET` |
 | User-Agent 版本 | `1.23.2`，可 ENV `ANTIGRAVITY_USER_AGENT_VERSION` 覆盖；**必须符合 `\d+\.\d+\.\d+`** |
 | RedirectURI | `http://localhost:8085/callback` |

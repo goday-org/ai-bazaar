@@ -1,0 +1,17 @@
+# CODEOWNERS — every PR auto-requests review from the listed owners.
+# Syntax: <path-pattern> <@user|@org/team> ...
+#
+# The repo owner reviews everything by default.
+* @goday-org
+
+# Protocol contract & architecture decisions: extra eyes when these
+# change, since they break cross-language compatibility.
+/docs/PROTOCOL.md     @goday-org
+/docs/ARCHITECTURE.md @goday-org
+/docs/PITFALLS.md     @goday-org
+
+# Once code is added, these will route to subject-matter reviewers:
+# /protocol/        @goday-org
+# /seller-relay/    @goday-org
+# /buyer-cli/       @goday-org
+# /chain/           @goday-org

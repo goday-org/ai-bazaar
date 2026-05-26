@@ -1,0 +1,65 @@
+name: commit-conventions
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  conventional-commits:
+    name: conventional commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages on PR
+        run: |
+          set -e
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          # Allow these commit types — extend as the project grows.
+          PATTERN='^(chore|docs|feat|fix|refactor|test|build|ci|perf|revert|strip|proto)(\([a-z0-9_/-]+\))?: .{1,72}$'
+          FAIL=0
+          while IFS= read -r line; do
+            sha="${line%% *}"
+            subject="${line#* }"
+            # Skip merge commits.
+            if [[ "$subject" == Merge* ]]; then
+              continue
+            fi
+            if ! echo "$subject" | grep -qE "$PATTERN"; then
+              echo "::error::commit $sha has non-conventional subject: $subject"
+              FAIL=1
+            fi
+          done < <(git log --no-merges --pretty=format:'%H %s' "$BASE_SHA..$HEAD_SHA")
+          exit $FAIL
+
+  pr-size-guard:
+    name: PR size guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Warn on large PRs
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          ADDED=$(git diff --shortstat "$BASE_SHA..$HEAD_SHA" \
+                  | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo 0)
+          echo "lines added: $ADDED"
+          # Hard cap: 1500 lines (per HANDOFF.md §3.3). The W1-W2
+          # sub2api import is the only known exception.
+          if [ "$ADDED" -gt 1500 ]; then
+            TITLE='${{ github.event.pull_request.title }}'
+            if echo "$TITLE" | grep -qiE '(strip|sub2api import|baseline)'; then
+              echo "::warning::large PR (>1500 lines) but matches sub2api-strip exception"
+            else
+              echo "::error::PR is $ADDED lines — exceeds 1500-line cap (HANDOFF.md §3.3). Split it up."
+              exit 1
+            fi
+          fi

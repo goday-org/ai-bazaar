@@ -1,0 +1,40 @@
+# gitleaks configuration — extends the default ruleset with project-specific
+# rules and allowlists.
+#
+# Default rules: https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "antigravity-client-secret"
+description = "Google Antigravity OAuth client secret literal"
+regex = '''GOCSPX-[A-Za-z0-9_-]{20,}'''
+tags = ["oauth", "google"]
+
+[[rules]]
+id = "anthropic-api-key"
+description = "Anthropic API key"
+regex = '''sk-ant-[A-Za-z0-9_-]{40,}'''
+tags = ["api-key", "anthropic"]
+
+[[rules]]
+id = "openai-api-key"
+description = "OpenAI API key"
+regex = '''sk-(?:proj-)?[A-Za-z0-9_-]{40,}'''
+tags = ["api-key", "openai"]
+
+[allowlist]
+description = "Allowlisted paths and patterns"
+paths = [
+  '''(?i)docs/PITFALLS\.md''',
+  '''(?i)\.github/gitleaks\.toml''',
+  '''(?i)\.gitignore''',
+]
+regexes = [
+  # Redacted placeholders are fine.
+  '''GOCSPX-<REDACTED>''',
+  '''sk-test-static-key''',
+  '''sk-ant-<.+>''',
+  '''sk-<.+>''',
+]
