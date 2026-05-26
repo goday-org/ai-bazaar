@@ -53,6 +53,25 @@ REASON: <why>
 - A PR may only be merged after `APPROVED` from the reviewer.
 - Squash-merge by default; preserve the conventional commit subject.
 
+## Bilingual README rule
+
+`README.md` (English) and `README.zh-CN.md` (Simplified Chinese) are the
+project's public landing pages and must stay in content parity.
+
+- **Any change to one MUST be applied to the other in the same PR.**
+  This includes: badges, sections, diagrams, tables, milestone status,
+  doc links, disclaimers.
+- Mermaid diagrams are language-agnostic — copy verbatim, only translate
+  inline labels if they contain prose.
+- The reciprocal language switcher at the top of each file must be kept
+  intact:
+  - `README.md` opens with: `**Language**: **English** · [简体中文](README.zh-CN.md)`
+  - `README.zh-CN.md` opens with: `**Language**: [English](README.md) · **简体中文**`
+- If you only have time / capacity for one language, **don't touch either**.
+  Open an issue describing the desired change instead.
+
+Reviewer rejects PRs that drift the two files apart.
+
 ## CI checks
 
 The following must be green before merge:
