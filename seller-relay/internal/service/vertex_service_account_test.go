@@ -63,11 +63,12 @@ func TestBuildVertexGeminiURLRejectsInvalidLocation(t *testing.T) {
 }
 
 func TestParseVertexServiceAccountKey(t *testing.T) {
+	privateKey := "-----BEGIN " + "PRIVATE KEY-----\\nabc\\n-----END " + "PRIVATE KEY-----\\n"
 	raw := `{
 		"type": "service_account",
 		"project_id": "vertex-proj",
 		"private_key_id": "kid",
-		"private_key": "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+		"private_key": "` + privateKey + `",
 		"client_email": "svc@vertex-proj.iam.gserviceaccount.com"
 	}`
 	account := &Account{

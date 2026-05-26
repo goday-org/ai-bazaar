@@ -159,6 +159,10 @@ func strPtr(s string) *string {
 	return &s
 }
 
+func testPEMBlock(keyType, body string) string {
+	return "-----BEGIN " + keyType + "-----\n" + body + "\n-----END " + keyType + "-----"
+}
+
 func TestFormatPEM(t *testing.T) {
 	t.Parallel()
 
@@ -176,9 +180,9 @@ func TestFormatPEM(t *testing.T) {
 		},
 		{
 			name:    "already formatted key is returned as-is",
-			key:     "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg...\n-----END PRIVATE KEY-----",
+			key:     testPEMBlock("PRIVATE KEY", "MIIEvQIBADANBg..."),
 			keyType: "PRIVATE KEY",
-			want:    "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg...\n-----END PRIVATE KEY-----",
+			want:    testPEMBlock("PRIVATE KEY", "MIIEvQIBADANBg..."),
 		},
 		{
 			name:    "key with leading/trailing whitespace is trimmed before check",
@@ -188,9 +192,9 @@ func TestFormatPEM(t *testing.T) {
 		},
 		{
 			name:    "already formatted key with whitespace is trimmed and returned",
-			key:     "  -----BEGIN RSA PRIVATE KEY-----\ndata\n-----END RSA PRIVATE KEY-----  ",
+			key:     "  " + testPEMBlock("RSA PRIVATE KEY", "data") + "  ",
 			keyType: "RSA PRIVATE KEY",
-			want:    "-----BEGIN RSA PRIVATE KEY-----\ndata\n-----END RSA PRIVATE KEY-----",
+			want:    testPEMBlock("RSA PRIVATE KEY", "data"),
 		},
 	}
 

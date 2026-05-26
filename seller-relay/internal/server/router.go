@@ -23,15 +23,15 @@ const frameSrcRefreshTimeout = 5 * time.Second
 func SetupRouter(
 	r *gin.Engine,
 	handlers *handler.Handlers,
-	jwtAuth middleware2.JWTAuthMiddleware,
-	adminAuth middleware2.AdminAuthMiddleware,
+	_ middleware2.JWTAuthMiddleware,
+	_ middleware2.AdminAuthMiddleware,
 	apiKeyAuth middleware2.APIKeyAuthMiddleware,
 	apiKeyService *service.APIKeyService,
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
 	cfg *config.Config,
-	redisClient *redis.Client,
+	_ *redis.Client,
 ) *gin.Engine {
 	// 缓存 iframe 页面的 origin 列表，用于动态注入 CSP frame-src
 	var cachedFrameOrigins atomic.Pointer[[]string]
@@ -81,7 +81,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, jwtAuth, adminAuth, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, cfg, redisClient)
+	registerRoutes(r, handlers, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, cfg)
 
 	return r
 }
@@ -90,24 +90,16 @@ func SetupRouter(
 func registerRoutes(
 	r *gin.Engine,
 	h *handler.Handlers,
-	jwtAuth middleware2.JWTAuthMiddleware,
-	adminAuth middleware2.AdminAuthMiddleware,
 	apiKeyAuth middleware2.APIKeyAuthMiddleware,
 	apiKeyService *service.APIKeyService,
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
 	cfg *config.Config,
-	redisClient *redis.Client,
 ) {
 	// 通用路由（健康检查、状态等）
 	routes.RegisterCommonRoutes(r)
 
-	// API v1
-	v1 := r.Group("/api/v1")
-
 	// 注册各模块路由
 	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, cfg)
-
-	handler.RegisterPageRoutes(v1, cfg.Pricing.DataDir, gin.HandlerFunc(jwtAuth), gin.HandlerFunc(adminAuth), settingService)
 }
